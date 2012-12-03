@@ -1,0 +1,30 @@
+{
+  "name": "magnolia",
+  "version": "0.0.1",
+  "description": "Beautiful MongoDB wrapper using Q",
+  "main": "index.js",
+  "scripts": {
+    "test": "tap test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:Submersible/node-magnolia.git"
+  },
+  "keywords": [
+    "mongodb",
+    "mongo",
+    "q",
+    "promise",
+    "easy"
+  ],
+  "author": "Ryan Munro <ryan@subc.io>",
+  "license": "MIT",
+  "dependencies": {
+    "merge-recursive": "0.0.3",
+    "q": "~0.8.11",
+    "mongodb": "~1.2.2"
+  },
+  "devDependencies": {
+    "tap": "~0.3.3"
+  }
+}
