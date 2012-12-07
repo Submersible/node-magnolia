@@ -5,7 +5,7 @@
 var _ = require('lodash'),
     Q = require('q'),
     mongodb = require('mongodb'),
-    dsl = require('../node-dsl');
+    dsl = require('dsl');
 
 // function chain(obj, actions) {
 //     actions.reduce(function (obj, action) {
