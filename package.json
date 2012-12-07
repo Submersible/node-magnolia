@@ -20,7 +20,6 @@
   "author": "Ryan Munro <ryan@subc.io>",
   "license": "MIT",
   "dependencies": {
-    "merge-recursive": "0.0.3",
     "q": "~0.8.11",
     "mongodb": "~1.2.2",
     "lodash": "~1.0.0-rc.2",
