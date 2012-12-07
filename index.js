@@ -4,7 +4,6 @@
 
 var _ = require('lodash'),
     Q = require('q'),
-    merge = require('merge-recursive').recursive,
     mongodb = require('mongodb'),
     dsl = require('../node-dsl');
 
@@ -16,33 +15,61 @@ var _ = require('lodash'),
 
 // helpers
 
-function actionFind(actions, name, fallback) {
-    return _.find(actions, function (action) {
+function mergeObj(a, b) {
+    var obj = {};
+    // combine differences
+    (function diff(a, b) {
+        _.difference(_.keys(a), _.keys(b)).forEach(function (key) {
+            obj[key] = a[key];
+        });
+        return diff;
+    }(a, b)(b, a));
+    // merge shared
+    _.intersection(_.keys(a), _.keys(b)).forEach(function (key) {
+        if (a[key] instanceof Array && b[key] instanceof Array) {
+            obj[key] = a[key].concat(b[key]);
+        } else if (typeof a[key] === 'object' && typeof b[key] === 'object') {
+            obj[key] = mergeObj(a[key], b[key]);
+        } else {
+            obj[key] = b[key];
+        }
+    });
+    return obj;
+}
+
+function merge() {
+    return _.toArray(arguments).reduce(mergeObj, {});
+}
+
+function actionFind(actions, name) {
+    return actions.filter(function (action) {
         return action[0] === name;  // @TODO pf.slice(0).seq(name)
-    }) || fallback;
+    }).map(function (action) {
+        return action[1][0];
+    });
 }
 
 function actionFindOne(actions, name, fallback) {
     // @TODO _(actionFind(actions, name)).otherwise(fallback)
-    return (actionFind(actions, name) || ['', [fallback]])[1][0];
+    return actionFind(actions, name)[0] || fallback;
 }
 
 function actionsLast(actions, name) {
-    return actionFind(actions, name, []).reverse()[0];
+    return actionFind(actions, name).reverse()[0];
 }
 
 function actionsCombine(actions, name, cb, start) {
-    return actionFind(actions, name, []).reduce(cb, start);
+    return actionFind(actions, name).reduce(cb, start);
 }
 
-function actionsMerge(actions, name) {
+function actionsMerge(actions, name, start) {
     /**
      * Ugh.  Merge will take in the extra reduce parameters, and throw an
      * exception.  No point free style today.
      */
     return actionsCombine(actions, name, function (a, b) {
         return merge(a, b); // @TODO pf(merge).limit(2)
-    }, {});
+    }, start || {});
 }
 
 function actionsAdd(actions, name) {
@@ -89,32 +116,46 @@ function getCollection(actions) {
         {w: 1} // {w, journal, fsync}
     );
     return Q.ninvoke(conn, 'open').then(function (client) {
-        return Q.ninvoke(client, 'collection', actionFindOne(actions, 'collection'));
+        return Q.all([
+            client,
+            Q.ninvoke(client, 'collection', actionFindOne(actions, 'collection'))
+        ]);
     });
+}
+
+function makeArgOptionCbFn(fn) {
+    return function (data, options, cb) {
+        var actions = this._actions;
+        if (options) {
+            actions = actions.concat([['options', [options]]]);
+        }
+        return fn(actions, data, cb);
+    };
 }
 
 // queries
 
 function toArray(actions, cb) {
-    var has_sort = actionFind(actions, 'sort'),
+    var has_sort = actionFindOne(actions, 'sort'),
         sort = actionsPush(actions, 'sort'),
-        has_skip = actionFind(actions, 'skip'),
+        has_skip = actionFindOne(actions, 'skip'),
         skip = actionsAdd(actions, 'skip'),
-        has_limit = actionFind(actions, 'limit'),
+        has_limit = actionFindOne(actions, 'limit'),
         limit = actionsLast(actions, 'limit'),
         find_one = !actionsFlag(actions, 'multi', 'one'),
         filter = actionsMerge(actions, 'filter'),
         fields = actionsMerge(actions, 'fields'),
         options = actionsMerge(actions, 'options');
 
-    return getCollection(actions).then(function (collection) {
+    return getCollection(actions).spread(function (client, collection) {
         var d = Q.defer(), obj = collection;
         if (has_sort) { obj = obj.sort(sort); }
         if (has_skip) { obj = obj.skip(skip); }
         if (has_limit) { obj = obj.limit(limit); }
         obj.find(filter, fields, options).toArray(function (err, docs) {
+            client.close();
             if (cb !== undefined) {
-                cb.apply(undefined, arguments);
+                cb.call(undefined, err, find_one ? docs[0] : docs);
             }
             if (err) {
                 d.reject(err);
@@ -127,24 +168,116 @@ function toArray(actions, cb) {
 }
 
 function remove(actions, cb) {
-    var has_limit = actionFind(actions, 'limit'),
+    var has_limit = actionFindOne(actions, 'limit'),
         limit = actionsLast(actions, 'limit'),
         filter = actionsMerge(actions, 'filter'),
-        multi = actionsFlag(actions, 'one', 'multi');
+        options = actionsMerge(actions, 'options', {
+            safe: actionsFlag(actions, 'safe', 'unsafe'),
+            multi: !actionsFlag(actions, 'one', 'multi')
+        });
 
-    return getCollection(actions).then(function (collection) {
-        var obj = collection;
+    return getCollection(actions).spread(function (client, collection) {
+        var d = Q.defer(), obj = collection;
         if (has_limit) {
             obj = obj.limit(limit);
         }
-        return Q.ninvoke(obj, 'remove', filter, {multi: multi}, cb);
+
+        collection.remove(filter, options, function (err, docs) {
+            client.close();
+            if (cb !== undefined) {
+                cb.call(undefined, err, docs);
+            }
+            if (err) {
+                d.reject(err);
+            } else {
+                d.resolve(docs);
+            }
+        });
+
+        return d.promise;
     });
 }
 
-function update(actions, options) {
+function update(actions, objNew, cb) {
+    var options = actionsMerge(actions, 'options', {
+            safe: actionsFlag(actions, 'safe', 'unsafe')
+        }),
+        filter = actionsMerge(actions, 'filter'),
+        one = !actionsFlag(actions, 'one', 'multi');
+
+    return getCollection(actions).spread(function (client, collection) {
+        var d = Q.defer(), obj = collection;
+
+        collection.update(filter, objNew, options, function (err, docs) {
+            client.close();
+            if (cb !== undefined) {
+                cb.call(undefined, err, (one && docs) ? docs[0] : docs);
+            }
+            if (err) {
+                d.reject(err);
+            } else {
+                d.resolve(one ? docs[0] : docs);
+            }
+        });
+
+        return d.promise;
+    });
 }
 
-function insert(actions, options) {
+function upsert(actions, criteria, cb) {
+    return update(actions.concat([
+        ['options', [{upsert: true}]]
+    ], criteria, cb));
+}
+
+function insert(actions, docs, cb) {
+    var options = actionsMerge(actions, 'options', {
+            safe: actionsFlag(actions, 'safe', 'unsafe')
+        }),
+        one = !(docs instanceof Array);
+
+    return getCollection(actions).spread(function (client, collection) {
+        var d = Q.defer(), obj = collection;
+
+        collection.insert(docs, options, function (err, docs) {
+            client.close();
+            if (cb !== undefined) {
+                cb.call(undefined, err, (one && docs) ? docs[0] : docs);
+            }
+            if (err) {
+                d.reject(err);
+            } else {
+                d.resolve(one ? docs[0] : docs);
+            }
+        });
+
+        return d.promise;
+    });
+}
+
+function save(actions, doc, cb) {
+    var options = actionsMerge(actions, 'options', {
+            safe: actionsFlag(actions, 'safe', 'unsafe')
+        }),
+        one = true;
+
+    return getCollection(actions).spread(function (client, collection) {
+        var d = Q.defer(), obj = collection;
+
+        collection.save(doc, options, function (err, doc) {
+            client.close();
+            if (cb !== undefined) {
+                cb.call(undefined, err, doc);
+            }
+            if (err) {
+                d.reject(err);
+            } else {
+                d.resolve(doc);
+            }
+        });
+
+        return d.promise;
+    });
 }
 
 var magnolia = dsl.methods([
@@ -162,16 +295,39 @@ var magnolia = dsl.methods([
     'one', // find remove, last
     'multi', // find remove, last
 
+    'safe', // insert upsert update findAndModify? remove, last
+    'unsafe', // insert upsert update findAndModify? remove, last
+
+    'timeout' // last DO THIS
+
     // eh?
-    'rewind',
-    'safe',
-    'unsafe'
-]).call(function (collection, db) {
+    // 'rewind',
+]).call('init', function () {
+    throw new Error('TODO init magnolia');
+}).call(function (collection, db) {
     var l = this._addAction(['collection', [collection]]); //.notCallable();
     if (db === undefined) {
         return l;
     }
     return l._addAction(['db', [db]]);
+}).call('toArray', function (cb) {
+    return toArray(this._actions, cb);
+}).call('then', function () {
+    /* Memoize! */
+    if (!this._promise) {
+        this._promise = toArray(this._actions);
+    }
+    return this._promise.then.apply(this._promise, arguments);
+}).call('nextObject', function (cb) {
+    throw new Error('TODO');
+}).call('each', function () {
+    throw new Error('TODO');
+}).call('on', function () {
+    throw new Error('TODO lazy each');
+}).call('once', function () {
+    throw new Error('TODO lazy each');
+}).call('findAndModify', function () {
+    throw new Error('TODO');
 }).call('remove', function (filter, cb) {
     var actions = this._actions;
     if (typeof filter === 'function') {
@@ -182,26 +338,12 @@ var magnolia = dsl.methods([
         actions = actions.concat([['filter', [filter]]]);
     }
     return remove(actions, cb);
-}).call('toArray', function (cb) {
-    return toArray(this._actions, cb);
-}).call('then', function () {
-    var p = toArray(this._actions);
-    return p.then.apply(p, arguments);
-}).call('nextObject', function () {
-    throw new Error('TODO');
-}).call('each', function () {
-    throw new Error('TODO');
-}).call('findAndModify', function () {
-    //
-}).call('update', function (objNew, options, cb) {
-    return update(this._actions, objNew, options, cb);
-}).call('upsert', function (objNew, options, cb) {
-    objNew = objNew || {};
-    objNew.upsert = true;
-    return update(this._actions, objNew, options, cb);
-}).call('insert', function (docs, options, cb) {
-    return insert(docs, options, cb);
-}).done();
+})
+    .call('update', makeArgOptionCbFn(update))
+    .call('upsert', makeArgOptionCbFn(upsert))
+    .call('insert', makeArgOptionCbFn(insert))
+    .call('save', makeArgOptionCbFn(save))
+    .done();
 
 /**
  * @param {Function} fn
@@ -220,5 +362,7 @@ function newIsForChumps(fn) {
 //     console.log('magnolia.' + key);
 //     magnolia[key] = newIsForChumps(mongodb[key]);
 // });
+
+magnolia.merge = merge;
 
 module.exports = magnolia;
