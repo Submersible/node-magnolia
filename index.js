@@ -123,6 +123,20 @@ function getCollection(actions) {
     });
 }
 
+function makeOptinalFilterCbFn(fn) {
+    return function (filter, cb) {
+        var actions = this._actions;
+        if (typeof filter === 'function') {
+            cb = filter;
+            filter = false;
+        }
+        if (filter) {
+            actions = actions.concat([['filter', [filter]]]);
+        }
+        return fn(actions, cb);
+    };
+}
+
 function makeArgOptionCbFn(fn) {
     return function (data, options, cb) {
         var actions = this._actions;
@@ -134,8 +148,7 @@ function makeArgOptionCbFn(fn) {
 }
 
 // queries
-
-function toArray(actions, cb) {
+function toCursor(actions) {
     var has_sort = actionFindOne(actions, 'sort'),
         sort = actionsPush(actions, 'sort'),
         has_skip = actionFindOne(actions, 'skip'),
@@ -148,11 +161,20 @@ function toArray(actions, cb) {
         options = actionsMerge(actions, 'options');
 
     return getCollection(actions).spread(function (client, collection) {
-        var d = Q.defer(), obj = collection;
+        var obj = collection;
         if (has_sort) { obj = obj.sort(sort); }
         if (has_skip) { obj = obj.skip(skip); }
         if (has_limit) { obj = obj.limit(limit); }
-        obj.find(filter, fields, options).toArray(function (err, docs) {
+
+        return [client, obj.find(filter, fields, options)];
+    });
+}
+
+function toArray(actions, cb) {
+    var find_one = !actionsFlag(actions, 'multi', 'one');
+    return toCursor(actions).spread(function (client, obj) {
+        var d = Q.defer();
+        obj.toArray(function (err, docs) {
             client.close();
             if (cb !== undefined) {
                 cb.call(undefined, err, find_one ? docs[0] : docs);
@@ -200,23 +222,23 @@ function remove(actions, cb) {
 
 function update(actions, objNew, cb) {
     var options = actionsMerge(actions, 'options', {
-            safe: actionsFlag(actions, 'safe', 'unsafe')
+            safe: actionsFlag(actions, 'safe', 'unsafe'),
+            multi: !actionsFlag(actions, 'one', 'multi')
         }),
-        filter = actionsMerge(actions, 'filter'),
-        one = !actionsFlag(actions, 'one', 'multi');
+        filter = actionsMerge(actions, 'filter');
 
     return getCollection(actions).spread(function (client, collection) {
         var d = Q.defer(), obj = collection;
 
-        collection.update(filter, objNew, options, function (err, docs) {
+        collection.update(filter, objNew, options, function (err, count) {
             client.close();
             if (cb !== undefined) {
-                cb.call(undefined, err, (one && docs) ? docs[0] : docs);
+                cb.call(undefined, err, count);
             }
             if (err) {
                 d.reject(err);
             } else {
-                d.resolve(one ? docs[0] : docs);
+                d.resolve(count);
             }
         });
 
@@ -224,10 +246,10 @@ function update(actions, objNew, cb) {
     });
 }
 
-function upsert(actions, criteria, cb) {
+function upsert(actions, objNew, cb) {
     return update(actions.concat([
         ['options', [{upsert: true}]]
-    ], criteria, cb));
+    ]), objNew, cb);
 }
 
 function insert(actions, docs, cb) {
@@ -280,12 +302,90 @@ function save(actions, doc, cb) {
     });
 }
 
+function count(actions, cb) {
+    var filter = actionsMerge(actions, 'filter');
+
+    return getCollection(actions).spread(function (client, collection) {
+        var d = Q.defer(), obj = collection;
+
+        collection.count(filter, function (err, docs) {
+            client.close();
+            if (cb !== undefined) {
+                cb.call(undefined, err, docs);
+            }
+            if (err) {
+                d.reject(err);
+            } else {
+                d.resolve(docs);
+            }
+        });
+
+        return d.promise;
+    });
+}
+
+function findAndModify(actions, objNew, cb) {
+    var sort = actionsPush(actions, 'sort'),
+        filter = actionsMerge(actions, 'filter'),
+        options = actionsMerge(actions, 'options');
+
+    return getCollection(actions).spread(function (client, collection) {
+        var d = Q.defer(), obj = collection;
+        obj.findAndModify(filter, sort, objNew, options, function (err, doc) {
+            client.close();
+            if (cb !== undefined) {
+                cb.call(undefined, err, doc);
+            }
+            if (err) {
+                d.reject(err);
+            } else {
+                d.resolve(doc);
+            }
+        });
+        return d.promise;
+    });
+}
+
+function cursor(obj) {
+    if (!obj._cursor) {
+        obj._cursor = toCursor(obj._actions);
+    }
+    return obj._cursor;
+}
+
+function wrapCursor(method) {
+    return function (cb) {
+        var that = this, args = _.toArray(arguments);
+        cursor(this).spread(function (client, cursor) {
+            cursor[method].apply(cursor, args);
+        });
+        return that;
+    };
+}
+
+function wrapCursorPromise(method) {
+    return function (cb) {
+        var args = _.toArray(arguments);
+        return cursor(this).then(function (cursor) {
+            return Q.ninvoke.apply(Q, [cursor, method].concat(args));
+        });
+    };
+}
+function promiseCallback(p, cb) {
+    if (typeof cb === 'function') {
+        p.then(function (data) {
+            cb(false, data);
+        }, cb);
+    }
+    return p;
+}
+
 var magnolia = dsl.methods([
-    // connection
+    /* Connection */
     'collection',
     'db',
 
-    // options
+    /* Options */
     'filter', // find, merge
     'sort', // find, pushs infront
     'limit', // find remove, last
@@ -296,20 +396,17 @@ var magnolia = dsl.methods([
     'multi', // find remove, last
 
     'safe', // insert upsert update findAndModify? remove, last
-    'unsafe', // insert upsert update findAndModify? remove, last
+    'unsafe' // insert upsert update findAndModify? remove, last
 
-    'timeout' // last DO THIS
-
-    // eh?
-    // 'rewind',
+    // 'timeout' // last DO THIS
 ]).call('init', function () {
     throw new Error('TODO init magnolia');
 }).call(function (collection, db) {
     var l = this._addAction(['collection', [collection]]); //.notCallable();
-    if (db === undefined) {
-        return l;
+    if (db !== undefined) {
+        l = l._addAction(['db', [db]]);
     }
-    return l._addAction(['db', [db]]);
+    return l;
 }).call('toArray', function (cb) {
     return toArray(this._actions, cb);
 }).call('then', function () {
@@ -318,27 +415,39 @@ var magnolia = dsl.methods([
         this._promise = toArray(this._actions);
     }
     return this._promise.then.apply(this._promise, arguments);
-}).call('nextObject', function (cb) {
-    throw new Error('TODO');
-}).call('each', function () {
-    throw new Error('TODO');
-}).call('on', function () {
-    throw new Error('TODO lazy each');
-}).call('once', function () {
-    throw new Error('TODO lazy each');
-}).call('findAndModify', function () {
-    throw new Error('TODO');
-}).call('remove', function (filter, cb) {
-    var actions = this._actions;
-    if (typeof filter === 'function') {
-        cb = filter;
-        filter = false;
+}).call('cursor', function (cb) {
+    return promiseCallback(cursor(this), cb);
+}).call('close', function (cb) {
+    /* TODO: Queue cursor commands */
+    if (this._cursor) {
+        return this._cursor.spread(function (client, cursor) {
+            client.close();
+            cb();
+        });
     }
-    if (filter) {
-        actions = actions.concat([['filter', [filter]]]);
-    }
-    return remove(actions, cb);
+    return promiseCallback(Q.defer().resolve(), cb);
 })
+    /* Cursor! */
+    .call('nextObject', wrapCursorPromise('nextObject'))
+    .call('once', wrapCursorPromise('once'))
+    .call('each', function (cb) {
+        var that = this, args = _.toArray(arguments);
+        cursor(this).spread(function (client, cursor) {
+            cursor.each(function (err, doc) {
+                if (!doc) {
+                    return client.close();
+                }
+                cb(doc);
+            });
+        });
+        return that;
+    })
+    .call('on', wrapCursor('on'))
+    .call('rewind', wrapCursor('rewind'))
+    /* Operations! */
+    .call('count', makeOptinalFilterCbFn(count))
+    .call('remove', makeOptinalFilterCbFn(remove))
+    .call('findAndModify', makeArgOptionCbFn(findAndModify))
     .call('update', makeArgOptionCbFn(update))
     .call('upsert', makeArgOptionCbFn(upsert))
     .call('insert', makeArgOptionCbFn(insert))
@@ -346,22 +455,23 @@ var magnolia = dsl.methods([
     .done();
 
 /**
+ * That's right, chump.
  * @param {Function} fn
  * @return {Function}
  */
 function newIsForChumps(fn) {
-    var obj = Object.create(fn.prototype);
-    fn.apply(obj, arguments);
-    return obj;
+    return function () {
+        var obj = Object.create(fn.prototype);
+        fn.apply(obj, arguments);
+        return obj;
+    };
 }
 
 /* BSON Types */
-// Object.keys(mongodb).filter(function (key) {
-//     return key[0] === key[0].toUpperCase();
-// }).forEach(function (key) {
-//     console.log('magnolia.' + key);
-//     magnolia[key] = newIsForChumps(mongodb[key]);
-// });
+['Long', 'ObjectID', 'Timestamp', 'DBRef', 'Binary', 'Code', 'Symbol',
+    'MinKey', 'MaxKey', 'Double'].forEach(function (key) {
+    magnolia[key] = newIsForChumps(mongodb[key]);
+});
 
 magnolia.merge = merge;
 

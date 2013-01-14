@@ -1,6 +1,6 @@
 {
   "name": "magnolia",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "Beautiful MongoDB wrapper using Q",
   "main": "index.js",
   "scripts": {
@@ -20,10 +20,10 @@
   "author": "Ryan Munro <ryan@subc.io>",
   "license": "MIT",
   "dependencies": {
-    "q": "~0.8.11",
-    "mongodb": "~1.2.2",
-    "lodash": "~1.0.0-rc.2",
-    "dsl": "0.0.2"
+    "q": "~0.8.12",
+    "lodash": "~1.0.0-rc.3",
+    "dsl": "0.0.2",
+    "mongodb": "~1.2.8"
   },
   "devDependencies": {
     "tap": "~0.3.3"

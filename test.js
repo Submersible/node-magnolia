@@ -49,6 +49,7 @@ test('something', function (t) {
             t.type(A._id, 'object');
             t.type(doc._id, 'object');
         });
+    /* Insert */
     }).then(function () {
         var objs = [B, C];
         return m.insert(objs).then(function (docs) {
@@ -56,12 +57,14 @@ test('something', function (t) {
             t.type(docs[0]._id, 'object');
             t.type(objs[0]._id, 'object');
         });
+    /* Save */
     }).then(function () {
         return m.save(D).then(function (doc) {
             t.deepEqual(D, doc, 'saved!');
             t.type(A._id, 'object');
             t.type(doc._id, 'object');
         });
+    /* Find */
     }).then(function () {
         return m.then(function (docs) {
             t.deepEqual(sortById([A, B, C, D]), sortById(docs));
@@ -74,8 +77,90 @@ test('something', function (t) {
                 t.deepEqual(sortById([A, C]), sortById(docs));
             });
     }).then(function () {
-        return m.remove().then(function (count) {
+        return m
+            .filter({hello: 'world'})
+            .update({$set: {hello: 'world!!!'}, $inc: {'foo.bar': 1}})
+            .then(function (count) {
+                t.equal(count, 1);
+            });
+    }).then(function () {
+        return m.filter({hello: 'world!!!'}).one().then(function (doc) {
+            t.equal(doc.hello, 'world!!!');
+            t.equal(doc.foo.bar, 124);
+        });
+    /* Update */
+    }).then(function () {
+        return m.update({$set: {all: 'yall'}}).then(function (count) {
+            t.equal(count, 1);
+        });
+    }).then(function () {
+        return m.multi().update({$set: {all: 'yall'}}).then(function (count) {
             t.equal(count, 4);
+        });
+    /* Each */
+    }).then(function () {
+        var Q = require('q');
+        var d = Q.defer();
+        var compare = [
+            {hello: 'mate'},
+            {all: 'yall', grr: 'rwar'},
+            {all: 'yall', foo: 'cat'},
+            {all: 'yall', meow: 'cat', wee: [3, 2, 1]}
+        ];
+
+        m.each(function (doc) {
+            delete doc._id;
+            t.deepEqual(compare.shift(), doc);
+        }).close();
+
+        return d;
+    /* Upsert */
+    }).then(function () {
+        return m
+            .filter({hello: 'world!!!'})
+            .upsert({hello: 'mate'})
+            .then(function (count) {
+                t.equal(count, 1);
+            });
+    }).then(function () {
+        return m.filter({hello: 'mate'}).one().then(function (doc) {
+            t.equal(A._id.toString(), doc._id.toString());
+        });
+    }).then(function () {
+        return m.count().then(function (count) {
+            t.equal(count, 4);
+        });
+    }).then(function () {
+        return m
+            .filter({name: 'ryan'})
+            .upsert({name: 'ryan', is: 'cool'})
+            .then(function (count) {
+                t.equal(count, 1);
+            });
+    /* Count */
+    }).then(function () {
+        return m.count().then(function (count) {
+            t.equal(count, 5);
+        });
+    }).then(function () {
+        return m.count({hello: 'mate'}).then(function (count) {
+            t.equal(count, 1);
+        });
+    /* Find and modify */
+    }).then(function () {
+        return m
+            .multi()
+            .filter({grr: 'rwar'})
+            .findAndModify({$set: {meow: 'face'}}, {'new': true})
+            .then(function (doc) {
+                B.all = 'yall';
+                B.meow = 'face';
+                t.deepEqual(B, doc);
+            });
+    /* C'est fini! */
+    }).then(function () {
+        return m.remove().then(function (count) {
+            t.equal(count, 5);
         });
     }).then(function () {
         t.end();

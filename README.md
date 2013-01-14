@@ -70,7 +70,7 @@ magnolia('user')
     .filter(query)
     .sort(sort)
     .options(options)
-    .findAndModify(update, [options], [callback]);
+    .findAndModify(objNew, [options], [callback]);
 ```
 
 Useful options (including the previous options):
@@ -116,21 +116,24 @@ Signature:
 ```javascript
 magnolia('user')
     .filter(criteria)
-    .update(objNew, [callback]);
+    .update(update, [options], [callback]);
 ```
 
 ```javascript
 magnolia('user')
     .filter(criteria)
-    .upsert(objNew, [callback]);
+    .upsert(objNew, [options], [callback]);
 ```
 
 Useful options:
 
 * `.filter(...)`
-* `safe:true` Should always set if you have a callback.
-* `multi:true` If set, all matching documents are updated, not just the first.
-* `upsert:true` Atomically inserts the document if no documents matched.
+* `.one()` or `.multi()`
+* `.safe()` or `.unsafe()`
+* `.options(...)`
+  * `safe:true` Should always set if you have a callback.
+  * `multi:true` If set, all matching documents are updated, not just the first.
+  * `upsert:true` Atomically inserts the document if no documents matched.
 
 ## Save
 
@@ -139,6 +142,12 @@ Performs an update if there's an `_id`, and an insert if not!
 ```javascript
 magnolia('user').save({_id: ObjectID('50c03c9c766c8598e0000002'), foo: 'bar'}); // update
 magnolia('user').save({hello: 'world'}); // insert
+```
+
+## Count
+
+```javascript
+magnolia('user').count([filter], [cb]);
 ```
 
 ## Map/reduce
@@ -164,11 +173,11 @@ magnolia.Double(number)
 1. commands
   1. insert DONE
   1. remove DONE
-  1. update
-  1. upsert
-  1. findAndModify
-  1. find
-  1. toArray
+  1. update DONE
+  1. count DONE
+  1. upsert DONE
+  1. findAndModify DONE
+  1. toArray DONE
   1. nextObject
   1. each
   1. ensureIndex?
@@ -179,6 +188,19 @@ magnolia.Double(number)
 1. server
 1. wrap the data types
 1. can i test a bad connection?
+
+1. features
+  1. nextObject
+  1. each
+  1. ensureIndex
+  1. map/reduce
+  1. queueing, max connections
+  1. raw mongodb connection
+1. fix
+  1. find's limit & sort
+  1. does server work?
+
+
 
 ## Check this
 
