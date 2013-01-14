@@ -2,6 +2,8 @@
 
 'use strict';
 
+var Q = require('q');
+
 var test = require('tap').test,
     magnolia = require('./');
 
@@ -99,21 +101,27 @@ test('something', function (t) {
         });
     /* Each */
     }).then(function () {
-        var Q = require('q');
         var d = Q.defer();
-        var compare = [
-            {hello: 'mate'},
-            {all: 'yall', grr: 'rwar'},
-            {all: 'yall', foo: 'cat'},
-            {all: 'yall', meow: 'cat', wee: [3, 2, 1]}
-        ];
 
-        m.each(function (doc) {
-            delete doc._id;
-            t.deepEqual(compare.shift(), doc);
-        }).close();
+        t.test('each loop', function (t) {
+            var compare = [
+                {all: 'yall', foo: {bar: 124, rwar: [1, 2, 3]}, hello: 'world!!!'},
+                {all: 'yall', grr: 'rwar'},
+                {all: 'yall', foo: 'cat'},
+                {all: 'yall', meow: 'cat', wee: [3, 2, 1]}
+            ];
+            t.plan(compare.length);
 
-        return d;
+            m.fields({_id: 0}).each(function (doc) {
+                t.deepEqual(compare.shift(), doc);
+
+                if (compare.length === 0) {
+                    d.resolve();
+                }
+            });
+        });
+
+        return d.promise;
     /* Upsert */
     }).then(function () {
         return m
