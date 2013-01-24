@@ -150,7 +150,7 @@ function makeArgOptionCbFn(fn) {
 // queries
 function toCursor(actions) {
     var has_sort = actionFindOne(actions, 'sort'),
-        sort = actionsPush(actions, 'sort'),
+        sort = actionsMerge(actions, 'sort'),
         has_skip = actionFindOne(actions, 'skip'),
         skip = actionsAdd(actions, 'skip'),
         has_limit = actionFindOne(actions, 'limit'),
@@ -161,12 +161,12 @@ function toCursor(actions) {
         options = actionsMerge(actions, 'options');
 
     return getCollection(actions).spread(function (client, collection) {
-        var obj = collection;
+        var obj = collection.find(filter, fields, options);
         if (has_sort) { obj = obj.sort(sort); }
         if (has_skip) { obj = obj.skip(skip); }
         if (has_limit) { obj = obj.limit(limit); }
 
-        return [client, obj.find(filter, fields, options)];
+        return [client, obj];
     });
 }
 
@@ -200,9 +200,11 @@ function remove(actions, cb) {
 
     return getCollection(actions).spread(function (client, collection) {
         var d = Q.defer(), obj = collection;
-        if (has_limit) {
-            obj = obj.limit(limit);
-        }
+        // We can only limit by one
+        // http://docs.mongodb.org/manual/applications/delete/#remove
+        // if (has_limit) {
+        //     obj = obj.limit(limit);
+        // }
 
         collection.remove(filter, options, function (err, docs) {
             client.close();
@@ -325,7 +327,7 @@ function count(actions, cb) {
 }
 
 function findAndModify(actions, objNew, cb) {
-    var sort = actionsPush(actions, 'sort'),
+    var sort = actionsMerge(actions, 'sort'),
         filter = actionsMerge(actions, 'filter'),
         options = actionsMerge(actions, 'options');
 
@@ -394,6 +396,7 @@ var magnolia = dsl.methods([
     'options', // find, merge
     'one', // find remove, last
     'multi', // find remove, last
+    'sort', // find
 
     'safe', // insert upsert update findAndModify? remove, last
     'unsafe' // insert upsert update findAndModify? remove, last
