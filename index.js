@@ -329,11 +329,21 @@ function count(actions, cb) {
 function findAndModify(actions, objNew, cb) {
     var sort = actionsMerge(actions, 'sort'),
         filter = actionsMerge(actions, 'filter'),
+        fields = actionsMerge(actions, 'fields'),
         options = actionsMerge(actions, 'options');
 
     return getCollection(actions).spread(function (client, collection) {
         var d = Q.defer(), obj = collection;
-        obj.findAndModify(filter, sort, objNew, options, function (err, doc) {
+        // wtf...
+        obj.findAndModify({
+            query: filter, 
+            sort: sort, 
+            remove: false,
+            update: objNew, 
+            new: true,
+            fields: fields,
+            upsert: false
+        }, function (err, doc) {
             client.close();
             if (cb !== undefined) {
                 cb.call(undefined, err, doc);
@@ -450,7 +460,8 @@ var magnolia = dsl.methods([
     /* Operations! */
     .call('count', makeOptinalFilterCbFn(count))
     .call('remove', makeOptinalFilterCbFn(remove))
-    .call('findAndModify', makeArgOptionCbFn(findAndModify))
+    // @TODO Fix findAndModify
+    // .call('findAndModify', makeArgOptionCbFn(findAndModify))
     .call('update', makeArgOptionCbFn(update))
     .call('upsert', makeArgOptionCbFn(upsert))
     .call('insert', makeArgOptionCbFn(insert))
