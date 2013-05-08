@@ -37,7 +37,7 @@ test('merge', function (t) {
 });
 
 test('something', function (t) {
-    var m = magnolia('test', 'mongoloid-test').safe();
+    var m = magnolia('test', 'magnolia-test').safe();
 
     var A = {hello: 'world', foo: {bar: 123, rwar: [1, 2, 3]}},
         B = {grr: 'rwar'},
@@ -78,6 +78,26 @@ test('something', function (t) {
             .then(function (docs) {
                 t.deepEqual(sortById([A, C]), sortById(docs));
             });
+    /* Find elsewhere */
+    }).then(function () {
+        return magnolia
+            .server('127.0.0.1', 27017)
+            .db('magnolia-test')
+            .collection('test')
+            .then(function (docs) {
+                t.deepEqual(sortById([A, B, C, D]), sortById(docs));
+            });
+    }).then(function () {
+        return magnolia
+            .server('127.0.0.1', 27017)
+            .db('magnolia-test')
+            .collection('test')
+            .filter({$or: [{hello: 'world'}]})
+            .filter({$or: [{foo: 'cat'}]})
+            .then(function (docs) {
+                t.deepEqual(sortById([A, C]), sortById(docs));
+            });
+    /* Update */
     }).then(function () {
         return m
             .filter({hello: 'world'})

@@ -110,11 +110,16 @@ function actionsFlag(actions, good, bad) {
 }
 
 function getCollection(actions) {
-    var conn = new mongodb.Db(
-        actionFindOne(actions, 'db'),
-        new mongodb.Server('localhost', 27017),
-        {w: 1} // {w, journal, fsync}
-    );
+    var server = actions.filter(function (action) {
+            return action[0] === 'server';
+        }).map(function (action) {
+            return action[1];
+        })[0] || ['localhost', 27017],
+        conn = new mongodb.Db(
+            actionFindOne(actions, 'db'),
+            new mongodb.Server(server[0], server[1] || 27017),
+            {w: 1} // {w, journal, fsync}
+        );
     return Q.ninvoke(conn, 'open').then(function (client) {
         return Q.all([
             client,
@@ -394,8 +399,9 @@ function promiseCallback(p, cb) {
 
 var magnolia = dsl.methods([
     /* Connection */
-    'collection',
+    'server',
     'db',
+    'collection',
 
     /* Options */
     'filter', // find, merge
