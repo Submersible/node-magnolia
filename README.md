@@ -12,7 +12,7 @@ var mongo = require('magnolia'),
     ObjectID = mongo.ObjectID;
 
 mongo
-    .server({host: 'localhost', port: 27117)
+    .server('localhost', 27117)
     .db('hello')
     .options({w: 1})
     .init(); // makes all the previous calls stored as defaults
