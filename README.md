@@ -59,9 +59,10 @@ magnolia('user')
 * `.one()` Find one!  And return the document, instead of a list.
 * `.limit(n).skip(m)` to control paging.
 * `.sort(fields)` Order by the given fields. There are several equivalent syntaxes:
-  * `.sort([['field1', 'desc'], ['field2', 'asc']])`
-  * `.sort([['field1', 'desc'], 'field2'])`
-  * `.sort('field1')` ascending by field1
+  * `.sort({'field1': -1, 'field2': 1})`
+  * `.sort({'field1': 1})`
+
+  **TODO Allow array sorting syntax as well**
 
 ### Find and modifiy
 

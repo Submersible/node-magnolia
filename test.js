@@ -132,7 +132,7 @@ test('something', function (t) {
             ];
             t.plan(compare.length);
 
-            m.fields({_id: 0}).each(function (doc) {
+            m.sort({'_id': 1}).fields({_id: 0}).each(function (doc) {
                 t.deepEqual(compare.shift(), doc);
 
                 if (compare.length === 0) {
