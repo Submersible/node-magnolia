@@ -1,4 +1,4 @@
-# magnolia&ndash;A beautiful MongoDB driver w/ Q [![Build Status](https://secure.travis-ci.org/Submersible/node-magnolia.png?branch=master)](http://travis-ci.org/Submersible/node-magnolia)
+# magnolia&ndash;A beautiful MongoDB driver w/ Promiz [![Build Status](https://secure.travis-ci.org/Submersible/node-magnolia.png?branch=master)](http://travis-ci.org/Submersible/node-magnolia)
 
 Magnolia implements a coherent, lazy, & chainable interface... with promises!
 Don't nest callbacks anymore than you have to!

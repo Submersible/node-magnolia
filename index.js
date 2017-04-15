@@ -3,7 +3,7 @@
 'use strict';
 
 var _ = require('lodash'),
-    Q = require('q'),
+    Promiz = require('promiz'),
     mongodb = require('mongodb'),
     dsl = require('dsl');
 
@@ -120,12 +120,12 @@ function getCollection(actions) {
             new mongodb.Server(server[0], server[1] || 27017),
             {w: 1} // {w, journal, fsync}
         );
-    return Q.ninvoke(conn, 'open').then(function (client) {
-        return Q.all([
+    return Promiz.nfcall(conn.open.bind(conn)).then(function (client) {
+        return [
             client,
-            Q.ninvoke(client, 'collection', actionFindOne(actions, 'collection'))
-        ]);
-    });
+            Promiz.nfcall(client.collection.bind(client), actionFindOne(actions, 'collection'))
+        ];
+    }).all();
 }
 
 function makeOptinalFilterCbFn(fn) {
@@ -178,7 +178,7 @@ function toCursor(actions) {
 function toArray(actions, cb) {
     var find_one = !actionsFlag(actions, 'multi', 'one');
     return toCursor(actions).spread(function (client, obj) {
-        var d = Q.defer();
+        var d = Promiz.defer();
         obj.toArray(function (err, docs) {
             client.close();
             if (cb !== undefined) {
@@ -190,7 +190,7 @@ function toArray(actions, cb) {
                 d.resolve(find_one ? docs[0] : docs);
             }
         });
-        return d.promise;
+        return d;
     });
 }
 
@@ -204,7 +204,7 @@ function remove(actions, cb) {
         });
 
     return getCollection(actions).spread(function (client, collection) {
-        var d = Q.defer(), obj = collection;
+        var d = Promiz.defer(), obj = collection;
         // We can only limit by one
         // http://docs.mongodb.org/manual/applications/delete/#remove
         // if (has_limit) {
@@ -223,7 +223,7 @@ function remove(actions, cb) {
             }
         });
 
-        return d.promise;
+        return d;
     });
 }
 
@@ -235,7 +235,7 @@ function update(actions, objNew, cb) {
         filter = actionsMerge(actions, 'filter');
 
     return getCollection(actions).spread(function (client, collection) {
-        var d = Q.defer(), obj = collection;
+        var d = Promiz.defer(), obj = collection;
 
         collection.update(filter, objNew, options, function (err, count) {
             client.close();
@@ -249,7 +249,7 @@ function update(actions, objNew, cb) {
             }
         });
 
-        return d.promise;
+        return d;
     });
 }
 
@@ -266,7 +266,7 @@ function insert(actions, docs, cb) {
         one = !(docs instanceof Array);
 
     return getCollection(actions).spread(function (client, collection) {
-        var d = Q.defer(), obj = collection;
+        var d = Promiz.defer(), obj = collection;
 
         collection.insert(docs, options, function (err, docs) {
             client.close();
@@ -280,7 +280,7 @@ function insert(actions, docs, cb) {
             }
         });
 
-        return d.promise;
+        return d;
     });
 }
 
@@ -291,7 +291,7 @@ function save(actions, doc, cb) {
         one = true;
 
     return getCollection(actions).spread(function (client, collection) {
-        var d = Q.defer(), obj = collection;
+        var d = Promiz.defer(), obj = collection;
 
         collection.save(doc, options, function (err, doc) {
             client.close();
@@ -305,7 +305,7 @@ function save(actions, doc, cb) {
             }
         });
 
-        return d.promise;
+        return d;
     });
 }
 
@@ -313,7 +313,7 @@ function count(actions, cb) {
     var filter = actionsMerge(actions, 'filter');
 
     return getCollection(actions).spread(function (client, collection) {
-        var d = Q.defer(), obj = collection;
+        var d = Promiz.defer(), obj = collection;
 
         collection.count(filter, function (err, docs) {
             client.close();
@@ -327,7 +327,7 @@ function count(actions, cb) {
             }
         });
 
-        return d.promise;
+        return d;
     });
 }
 
@@ -338,13 +338,13 @@ function findAndModify(actions, objNew, cb) {
         options = actionsMerge(actions, 'options');
 
     return getCollection(actions).spread(function (client, collection) {
-        var d = Q.defer(), obj = collection;
+        var d = Promiz.defer(), obj = collection;
         // wtf...
         obj.findAndModify({
-            query: filter, 
-            sort: sort, 
+            query: filter,
+            sort: sort,
             remove: false,
-            update: objNew, 
+            update: objNew,
             new: true,
             fields: fields,
             upsert: false
@@ -359,7 +359,7 @@ function findAndModify(actions, objNew, cb) {
                 d.resolve(doc);
             }
         });
-        return d.promise;
+        return d;
     });
 }
 
@@ -384,7 +384,7 @@ function wrapCursorPromise(method) {
     return function (cb) {
         var args = _.toArray(arguments);
         return cursor(this).then(function (cursor) {
-            return Q.ninvoke.apply(Q, [cursor, method].concat(args));
+            return Promiz.nfcall.apply(Promiz.bind(Q), [cursor, method].concat(args));
         });
     };
 }
@@ -444,7 +444,7 @@ var magnolia = dsl.methods([
             cb();
         });
     }
-    return promiseCallback(Q.defer().resolve(), cb);
+    return promiseCallback(Promiz.defer().resolve(), cb);
 })
     /* Cursor! */
     .call('nextObject', wrapCursorPromise('nextObject'))
